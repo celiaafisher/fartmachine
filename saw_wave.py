@@ -92,16 +92,16 @@ def apply_modwheel(signal: np.ndarray, sample_rate: int, mod: float) -> np.ndarr
     return sig
 
 
-def play_saw_wave(sample_rate: int = 44100) -> None:
-    """Generate a random sawtooth burst and play it."""
-    freq = np.random.uniform(8.0, 12.0)
+def play_noise_burst(sample_rate: int = 44100) -> None:
+    """Generate a random noise burst and play it."""
+    freq = np.random.uniform(23.0, 35.0)
     duration = np.random.uniform(0.1, 3.0)
     attack = np.random.uniform(0.005, 0.2)
     release = np.random.uniform(0.05, 0.2)
     mod = np.random.uniform(0.0, 1.0)
 
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-    wave = saw_wave(freq, t)
+    wave = np.random.randn(len(t))
     env = amplitude_envelope(len(wave), sample_rate, attack, release)
     wave *= env
     wave = resonant_lowpass(wave, cutoff_hz=1500, q=0.8, sample_rate=sample_rate)
@@ -116,4 +116,4 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
 
 
 if __name__ == "__main__":
-    play_saw_wave()
+    play_noise_burst()
