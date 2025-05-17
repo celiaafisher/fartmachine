@@ -50,25 +50,66 @@ def highpass_filter(
     return lfilter(b, a, signal)
 
 
+def saturator(signal: np.ndarray, drive: float) -> np.ndarray:
+    """Simple waveshaper with controllable drive."""
+    return np.tanh(drive * signal)
+
+
+def chorus(
+    signal: np.ndarray,
+    sample_rate: int,
+    depth_s: float = 0.005,
+    rate_hz: float = 1.0,
+    mix: float = 0.5,
+) -> np.ndarray:
+    """Mono chorus using an LFO-modulated delay line."""
+    n = len(signal)
+    lfo = np.sin(2 * np.pi * rate_hz * np.arange(n) / sample_rate)
+    delay_samples = (depth_s * sample_rate) * (0.5 * (lfo + 1))
+    out = np.zeros(n)
+    for i in range(n):
+        d = delay_samples[i]
+        idx = i - d
+        if idx <= 0:
+            delayed = 0.0
+        else:
+            lo, hi = int(np.floor(idx)), int(np.ceil(idx))
+            frac = idx - lo
+            delayed = (1 - frac) * signal[lo] + frac * signal[min(hi, n - 1)]
+        out[i] = mix * delayed + (1 - mix) * signal[i]
+    return out
+
+
+def apply_modwheel(signal: np.ndarray, sample_rate: int, mod: float) -> np.ndarray:
+    """Map mod ∈ [0,1] to filter, drive and chorus parameters."""
+    hp_cut = 100 + mod * 900
+    drive = 1 + mod * 4
+    mix = 0.2 + mod * 0.4
+
+    sig = highpass_filter(signal, hp_cut, sample_rate)
+    sig = saturator(sig, drive)
+    sig = chorus(sig, sample_rate, depth_s=0.005, rate_hz=0.8, mix=mix)
+    return sig
+
+
 def play_saw_wave(sample_rate: int = 44100) -> None:
     """Generate a random sawtooth burst and play it."""
     freq = np.random.uniform(8.0, 12.0)
     duration = np.random.uniform(0.1, 3.0)
     attack = np.random.uniform(0.005, 0.2)
     release = np.random.uniform(0.05, 0.2)
+    mod = np.random.uniform(0.0, 1.0)
 
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
     wave = saw_wave(freq, t)
     env = amplitude_envelope(len(wave), sample_rate, attack, release)
     wave *= env
     wave = resonant_lowpass(wave, cutoff_hz=1500, q=0.8, sample_rate=sample_rate)
-    wave = highpass_filter(wave, cutoff_hz=200.0, sample_rate=sample_rate)
-    drive = 2.0
-    wave = np.tanh(drive * wave)
+    wave = apply_modwheel(wave, sample_rate, mod)
 
     print(
         f"Playing {freq:.1f} Hz for {duration:.2f} s "
-        f"(attack={attack:.3f}s, release={release:.3f}s)"
+        f"(attack={attack:.3f}s, release={release:.3f}s, mod={mod:.2f})"
     )
     sd.play(wave, sample_rate)
     sd.wait()
