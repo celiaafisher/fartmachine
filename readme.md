@@ -12,7 +12,7 @@ pip install -r requirements.txt
 
 ## Usage
 
-Running the script will pick a random frequency between 30 and 45 Hz and a random duration between 0.1 and 3 seconds. The waveform is shaped with a quick-attack, quick-release envelope and passed through a simple low-pass filter.
+Running the script will pick a random frequency between 8 and 12 Hz and a random duration between 0.1 and 3 seconds. The waveform is shaped with a quick-attack, quick-release envelope, filtered with a resonant low‑pass and high‑pass stage and finally run through a mild waveshaper.
 
 ```bash
 python saw_wave.py
