@@ -28,6 +28,32 @@ def lowpass_filter(signal: np.ndarray, cutoff_hz: float, sample_rate: int, order
     return lfilter(b, a, signal)
 
 
+def filter_env(length: int, sample_rate: int, attack: float = 0.4, decay: float = 2.0) -> np.ndarray:
+    """Create an envelope for filter cutoff modulation."""
+    a_len = int(attack * sample_rate)
+    d_len = int(decay * sample_rate)
+    a = np.linspace(0.0, 1.0, a_len, endpoint=False)
+    d = np.linspace(1.0, 0.0, d_len, endpoint=False)
+    env = np.concatenate([a, d])
+    if len(env) < length:
+        env = np.pad(env, (0, length - len(env)), constant_values=0.0)
+    return env[:length]
+
+
+def dynamic_lowpass(signal: np.ndarray, cutoffs: np.ndarray, sample_rate: int) -> np.ndarray:
+    """Apply a simple low-pass filter with a varying cutoff."""
+    out = np.zeros_like(signal)
+    prev = 0.0
+    dt = 1.0 / sample_rate
+    for i, x in enumerate(signal):
+        cutoff = max(cutoffs[i], 1.0)
+        rc = 1.0 / (2.0 * np.pi * cutoff)
+        alpha = dt / (rc + dt)
+        prev += alpha * (x - prev)
+        out[i] = prev
+    return out
+
+
 def play_saw_wave(sample_rate: int = 44100) -> None:
     """Generate a random sawtooth burst and play it."""
     freq = np.random.uniform(30.0, 45.0)
@@ -39,7 +65,10 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     wave = saw_wave(freq, t)
     env = amplitude_envelope(len(wave), sample_rate, attack, release)
     wave *= env
-    wave = lowpass_filter(wave, cutoff_hz=1500, sample_rate=sample_rate)
+
+    f_env = filter_env(len(wave), sample_rate)
+    cutoffs = 500.0 + 1000.0 * f_env
+    wave = dynamic_lowpass(wave, cutoffs, sample_rate)
 
     print(
         f"Playing {freq:.1f} Hz for {duration:.2f} s "
