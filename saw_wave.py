@@ -9,6 +9,18 @@ def saw_wave(freq: float, time_array: np.ndarray) -> np.ndarray:
     return 2.0 * (freq * time_array % 1.0) - 1.0
 
 
+def square_wave(freq: float, time_array: np.ndarray) -> np.ndarray:
+    """Generate a square wave."""
+    return np.where(np.sin(2 * np.pi * freq * time_array) >= 0, 1.0, -1.0)
+
+
+def position_envelope(length: int, sample_rate: int, decay: float) -> np.ndarray:
+    """Ramp from 0 to 1 over ``decay`` seconds and then hold."""
+    env = np.arange(length) / (sample_rate * decay)
+    env[env > 1.0] = 1.0
+    return env
+
+
 def amplitude_envelope(length: int, sample_rate: int, attack: float, release: float) -> np.ndarray:
     """Create an amplitude envelope with linear attack and quick release."""
     env = np.ones(length)
@@ -137,7 +149,12 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     mod = np.random.uniform(0.0, 1.0)
 
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-    wave = saw_wave(freq, t)
+
+    saw = saw_wave(freq, t)
+    square = square_wave(freq, t)
+    wt_env = position_envelope(len(t), sample_rate, decay=1.0)
+    wave = (1.0 - wt_env) * saw + wt_env * square
+
     env = amplitude_envelope(len(wave), sample_rate, attack, release)
     wave *= env
     filt_env = filter_envelope(len(wave), sample_rate, attack=0.4, decay=2.0)
