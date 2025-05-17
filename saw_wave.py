@@ -1,6 +1,7 @@
 import numpy as np
 import sounddevice as sd
 from scipy.signal import butter, lfilter
+from typing import Union
 
 
 def saw_wave(freq: float, time_array: np.ndarray) -> np.ndarray:
@@ -20,20 +21,55 @@ def amplitude_envelope(length: int, sample_rate: int, attack: float, release: fl
     return env
 
 
-def resonant_lowpass(
-    signal: np.ndarray, cutoff_hz: float, q: float, sample_rate: int
+def filter_envelope(
+    length: int,
+    sample_rate: int,
+    attack: float,
+    decay: float,
 ) -> np.ndarray:
-    """Apply a two-pole state variable low-pass filter with resonance."""
-    f = 2.0 * np.sin(np.pi * cutoff_hz / sample_rate)
+    """Create a filter envelope with attack-decay and zero sustain."""
+    env = np.zeros(length)
+    a_len = int(sample_rate * attack)
+    d_len = int(sample_rate * decay)
+
+    a_end = min(a_len, length)
+    if a_end > 0:
+        env[:a_end] = np.linspace(0.0, 1.0, a_end, endpoint=False)
+
+    d_end = min(d_len, length - a_end)
+    if d_end > 0:
+        env[a_end : a_end + d_end] = np.linspace(1.0, 0.0, d_end, endpoint=False)
+
+    return env
+
+
+def resonant_lowpass(
+    signal: np.ndarray, cutoff_hz: Union[float, np.ndarray], q: float, sample_rate: int
+) -> np.ndarray:
+    """Apply a two-pole state variable low-pass filter with resonance.
+
+    The cutoff can be a scalar or an array matching ``signal`` for per-sample
+    modulation.
+    """
     damping = 1.0 / max(q, 1e-6)
     low = 0.0
     band = 0.0
     out = np.zeros_like(signal)
-    for i, x in enumerate(signal):
-        high = x - low - damping * band
-        band += f * high
-        low += f * band
-        out[i] = low
+
+    if np.isscalar(cutoff_hz):
+        f = 2.0 * np.sin(np.pi * cutoff_hz / sample_rate)
+        for i, x in enumerate(signal):
+            high = x - low - damping * band
+            band += f * high
+            low += f * band
+            out[i] = low
+    else:
+        for i, x in enumerate(signal):
+            f = 2.0 * np.sin(np.pi * cutoff_hz[i] / sample_rate)
+            high = x - low - damping * band
+            band += f * high
+            low += f * band
+            out[i] = low
     return out
 
 
@@ -94,7 +130,7 @@ def apply_modwheel(signal: np.ndarray, sample_rate: int, mod: float) -> np.ndarr
 
 def play_saw_wave(sample_rate: int = 44100) -> None:
     """Generate a random sawtooth burst and play it."""
-    freq = np.random.uniform(8.0, 12.0)
+    freq = np.random.uniform(18.0, 20.0)
     duration = np.random.uniform(0.1, 3.0)
     attack = np.random.uniform(0.005, 0.2)
     release = np.random.uniform(0.05, 0.2)
@@ -104,7 +140,9 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     wave = saw_wave(freq, t)
     env = amplitude_envelope(len(wave), sample_rate, attack, release)
     wave *= env
-    wave = resonant_lowpass(wave, cutoff_hz=1500, q=0.8, sample_rate=sample_rate)
+    filt_env = filter_envelope(len(wave), sample_rate, attack=0.4, decay=2.0)
+    cutoff = 100 + filt_env * 1400  # sweep 100 Hz -> 1500 Hz
+    wave = resonant_lowpass(wave, cutoff_hz=cutoff, q=0.8, sample_rate=sample_rate)
     wave = apply_modwheel(wave, sample_rate, mod)
 
     print(
