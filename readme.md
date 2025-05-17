@@ -1,6 +1,7 @@
 # Fart Machine
 
-This repository demonstrates generating a short sawtooth burst in Python. Each execution produces a slightly different sound by randomizing several parameters.
+This repository demonstrates generating a short sawtooth burst in Python. Each
+execution produces a slightly different sound by randomizing several parameters.
 
 ## Requirements
 
@@ -12,7 +13,7 @@ pip install -r requirements.txt
 
 ## Usage
 
-Running the script will pick a random frequency between 18 and 20 Hz and a random duration between 0.1 and 3 seconds. The waveform is shaped with a quick-attack, quick-release envelope, filtered with a resonant low‑pass and high‑pass stage, run through a mild waveshaper and then thickened by a simple chorus effect. A random “mod wheel” value modulates the high-pass cutoff, drive and chorus mix each run.
+Running the script will pick a random frequency between 20 and 35 Hz and a random duration between 0.5 and 3 seconds. The waveform is shaped with a quick-attack, quick-release envelope, filtered with a resonant low-pass and high-pass stage, run through a mild waveshaper and then thickened by a simple chorus effect. A random “mod wheel” value modulates the high-pass cutoff, drive and chorus mix each run.
 
 ```bash
 python saw_wave.py

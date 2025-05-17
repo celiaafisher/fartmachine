@@ -130,8 +130,8 @@ def apply_modwheel(signal: np.ndarray, sample_rate: int, mod: float) -> np.ndarr
 
 def play_saw_wave(sample_rate: int = 44100) -> None:
     """Generate a random sawtooth burst and play it."""
-    freq = np.random.uniform(18.0, 20.0)
-    duration = np.random.uniform(0.1, 3.0)
+    freq = np.random.uniform(20.0, 35.0)
+    duration = np.random.uniform(0.5, 3.0)
     attack = np.random.uniform(0.005, 0.2)
     release = np.random.uniform(0.05, 0.2)
     mod = np.random.uniform(0.0, 1.0)
