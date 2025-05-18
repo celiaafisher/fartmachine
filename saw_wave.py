@@ -106,10 +106,9 @@ def chorus(
     sample_rate: int,
     depth_s: float = 0.005,
     rate_hz: float = 1.0,
-    mix: float = 0.5,
     phase: float = 0.0,
 ) -> np.ndarray:
-    """Mono chorus using an LFO-modulated delay line.
+    """Mono chorus using an LFO-modulated delay line, wet-only.
 
     Parameters
     ----------
@@ -121,8 +120,6 @@ def chorus(
         Maximum delay depth in seconds.
     rate_hz : float, default 1.0
         LFO rate in Hertz.
-    mix : float, default 0.5
-        Dry/wet mix ratio.
     phase : float, default 0.0
         Starting phase of the LFO as a fraction of one cycle.
     """
@@ -140,39 +137,50 @@ def chorus(
             lo, hi = int(np.floor(idx)), int(np.ceil(idx))
             frac = idx - lo
             delayed = (1 - frac) * signal[lo] + frac * signal[min(hi, n - 1)]
-        out[i] = mix * delayed + (1 - mix) * signal[i]
+        out[i] = delayed
     return out
 
 
 def apply_modwheel(signal: np.ndarray, sample_rate: int, mod: float) -> np.ndarray:
-    """Map mod ∈ [0,1] to filter, drive and chorus parameters."""
+    """Apply mod-wheel to high-pass cutoff and chorus."""
     hp_cut = 100 + mod * 900
-    drive = 1 + mod * 4
-    mix = 0.2 + mod * 0.4
 
     sig = highpass_filter(signal, hp_cut, sample_rate)
-    sig = saturator(sig, drive)
-    sig = chorus(sig, sample_rate, depth_s=0.005, rate_hz=0.8, mix=mix)
+    sig = chorus(sig, sample_rate, depth_s=0.005, rate_hz=0.8)
     return sig
 
 
 def play_saw_wave(sample_rate: int = 44100) -> None:
     """Generate a random sawtooth burst and play it."""
-    freq = np.random.uniform(20.0, 35.0)
+    raw_freq = np.random.uniform(20.0, 35.0)
     duration = np.random.uniform(0.5, 3.0)
     attack = np.random.uniform(0.005, 0.2)
     release = np.random.uniform(0.05, 0.2)
     mod = np.random.uniform(0.0, 1.0)
+
+    # 1) Pitch-mod via mod-wheel (0…2 semitones down)
+    freq = raw_freq * (2 ** (-mod * (2 / 12)))
 
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
     wave = saw_wave(freq, t)
     env = amplitude_envelope(len(wave), sample_rate, attack, release)
     wave *= env
     filt_env = filter_envelope(len(wave), sample_rate, attack=0.4, decay=2.0)
-    cutoff = 100 + filt_env * 1400  # sweep 100 Hz -> 1500 Hz
+    # 2) Filter-open mod: adds up to +500 Hz at full wheel
+    cutoff = 100 + filt_env * 1400 + mod * 500
+
+    # 1) Pre-drive the clicks for extra grit
+    wave = saturator(wave, drive=1.5)
+
+    # 2) Now filter them
     wave = resonant_lowpass(
         wave, cutoff_hz=cutoff, q=0.8, sample_rate=sample_rate, drive=1.8
     )
+
+    # Remove sub-200 Hz rumble (speaker-safe cleanup)
+    wave = highpass_filter(wave, cutoff_hz=200.0, sample_rate=sample_rate)
+
+    # 3) Follow with HPF+chorus in apply_modwheel()
     wave = apply_modwheel(wave, sample_rate, mod)
 
     print(
