@@ -3,6 +3,10 @@ import sounddevice as sd
 from scipy.signal import butter, lfilter
 from typing import Union
 
+# Global state for MS-20 filter emulation
+ic1eq = 0.0
+ic2eq = 0.0
+
 
 def saw_wave(freq: float, time_array: np.ndarray) -> np.ndarray:
     """Generate a sawtooth wave."""
@@ -116,6 +120,32 @@ def resonant_highpass(
     return out
 
 
+def ms20_lowpass(
+    signal: np.ndarray,
+    cutoff_hz: Union[float, np.ndarray],
+    res: float,
+    drive: float,
+    sr: int,
+) -> np.ndarray:
+    """Simple MS-20 style low-pass filter with drive inside the loop."""
+
+    global ic1eq, ic2eq
+    out = np.zeros_like(signal)
+    for i, x in enumerate(signal):
+        x = np.tanh(drive * x)
+        f = (
+            2.0 * np.sin(np.pi * cutoff_hz / sr)
+            if np.isscalar(cutoff_hz)
+            else 2.0 * np.sin(np.pi * cutoff_hz[i] / sr)
+        )
+        v1 = (f * (x - ic2eq) + ic1eq) / (1.0 + f * (f + res))
+        v2 = f * v1 + ic2eq
+        ic1eq = 2.0 * v1 - ic1eq
+        ic2eq = 2.0 * v2 - ic2eq
+        out[i] = np.tanh(v2)
+    return out
+
+
 def highpass_filter(
     signal: np.ndarray,
     cutoff_hz: float,
@@ -184,7 +214,9 @@ def ensemble_chorus(signal: np.ndarray, sample_rate: int) -> np.ndarray:
     c1 = chorus(signal, sample_rate, rate_hz=0.9, depth_s=0.005, phase=0.0)
     c2 = chorus(signal, sample_rate, rate_hz=1.1, depth_s=0.006, phase=0.33)
     c3 = chorus(signal, sample_rate, rate_hz=1.0, depth_s=0.004, phase=0.66)
-    return (c1 + c2 + c3) / 3
+    dry = signal
+    wet = (c1 + c2 + c3) / 3
+    return 0.5 * dry + 0.5 * wet
 
 
 def apply_modwheel(signal: np.ndarray, sample_rate: int, mod: float) -> np.ndarray:
@@ -224,7 +256,8 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     )
 
     # Blend saw <> square using envelope and mod wheel
-    wave = (1 - wt_env) * wave + wt_env * square
+    blend = np.tanh(1.5 * wt_env) / np.tanh(1.5)
+    wave = (1 - blend) * wave + blend * square
     wave = (1 - mod * 0.2) * wave + (mod * 0.2) * square
 
     # ----- Pre-drive before filtering
@@ -238,25 +271,33 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
         decay=2.0,
     )
 
-    base_cut = 100 + filt_env * 1400
-    cutoff = base_cut + mod * 500
+    # Exponential mapping for a more musical cutoff sweep
+    min_cf, max_cf = 100.0, 1500.0
+    cutoff_env = min_cf * (max_cf / min_cf) ** filt_env
+    cutoff = cutoff_env * (1 + 0.5 * mod)
 
-    # ----- MS-2 style low-pass
-    wave = resonant_lowpass(
-        signal=wave,
+    # ----- MS-20 style low-pass with internal drive
+    q = 0.95
+    ic1eq = ic2eq = 0.0  # reset filter state
+    wave = ms20_lowpass(
+        wave,
         cutoff_hz=cutoff,
-        q=0.95,
-        sample_rate=sample_rate,
+        res=1.0 / q,
         drive=6.0,
+        sr=sample_rate,
     )
 
-    # ----- Remove rumble
-    wave = highpass_filter(
+    # ----- Remove rumble with slight resonance
+    wave = resonant_highpass(
         signal=wave,
         cutoff_hz=200.0,
+        q=1.2,
         sample_rate=sample_rate,
-        order=2,
+        drive=1.2,
     )
+
+    # ----- Extra drive after filtering
+    wave = saturator(wave, drive=2.0)
 
     # ----- 3-voice ensemble chorus
     wave = ensemble_chorus(wave, sample_rate)
