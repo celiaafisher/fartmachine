@@ -108,9 +108,9 @@ def chorus(
     rate_hz: float = 1.0,
     mix: float = 0.5,
 ) -> np.ndarray:
-    """Mono chorus poop using an LFO-modulated delay line."""
+    """Mono chorus using an LFO-modulated delay line."""
     n = len(signal)
-    lfo = np.sin(2 * np.pi * rate_hz * np.arange(n) / sample_rate)
+    lfo = np.sin(np.pi * rate_hz * np.arange(n) / sample_rate)
     delay_samples = (depth_s * sample_rate) * (0.5 * (lfo + 1))
     out = np.zeros(n)
     for i in range(n):
