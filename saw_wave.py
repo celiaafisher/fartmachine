@@ -44,13 +44,19 @@ def filter_envelope(
 
 
 def resonant_lowpass(
-    signal: np.ndarray, cutoff_hz: Union[float, np.ndarray], q: float, sample_rate: int
+    signal: np.ndarray,
+    cutoff_hz: Union[float, np.ndarray],
+    q: float,
+    sample_rate: int,
+    drive: float = 1.0,
 ) -> np.ndarray:
-    """Apply a two-pole state variable low-pass filter with resonance.
+    """Two-pole SVF with resonance and analogue-style drive.
 
-    The cutoff can be a scalar or an array matching ``signal`` for per-sample
-    modulation.
+    ``cutoff_hz`` may be a scalar or an array matching ``signal`` for
+    per-sample modulation. ``drive`` scales the input before the filtering
+    step; values above ``1.0`` introduce non-linearity via a ``tanh`` stage.
     """
+
     damping = 1.0 / max(q, 1e-6)
     low = 0.0
     band = 0.0
@@ -59,16 +65,20 @@ def resonant_lowpass(
     if np.isscalar(cutoff_hz):
         f = 2.0 * np.sin(np.pi * cutoff_hz / sample_rate)
         for i, x in enumerate(signal):
-            high = x - low - damping * band
+            x_driven = x * drive
+            high = x_driven - low - damping * band
             band += f * high
             low += f * band
+            low = np.tanh(low)
             out[i] = low
     else:
         for i, x in enumerate(signal):
             f = 2.0 * np.sin(np.pi * cutoff_hz[i] / sample_rate)
-            high = x - low - damping * band
+            x_driven = x * drive
+            high = x_driven - low - damping * band
             band += f * high
             low += f * band
+            low = np.tanh(low)
             out[i] = low
     return out
 
@@ -142,7 +152,9 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     wave *= env
     filt_env = filter_envelope(len(wave), sample_rate, attack=0.4, decay=2.0)
     cutoff = 100 + filt_env * 1400  # sweep 100 Hz -> 1500 Hz
-    wave = resonant_lowpass(wave, cutoff_hz=cutoff, q=0.8, sample_rate=sample_rate)
+    wave = resonant_lowpass(
+        wave, cutoff_hz=cutoff, q=0.8, sample_rate=sample_rate, drive=1.8
+    )
     wave = apply_modwheel(wave, sample_rate, mod)
 
     print(
