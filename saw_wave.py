@@ -83,6 +83,39 @@ def resonant_lowpass(
     return out
 
 
+def resonant_highpass(
+    signal: np.ndarray,
+    cutoff_hz: Union[float, np.ndarray],
+    q: float,
+    sample_rate: int,
+    drive: float = 1.0,
+) -> np.ndarray:
+    """Two-pole SVF high-pass with resonance and drive."""
+
+    damping = 1.0 / max(q, 1e-6)
+    low = 0.0
+    band = 0.0
+    out = np.zeros_like(signal)
+
+    if np.isscalar(cutoff_hz):
+        f = 2.0 * np.sin(np.pi * cutoff_hz / sample_rate)
+        for i, x in enumerate(signal):
+            x_driven = x * drive
+            high = x_driven - low - damping * band
+            band += f * high
+            low += f * band
+            out[i] = np.tanh(high)
+    else:
+        for i, x in enumerate(signal):
+            f = 2.0 * np.sin(np.pi * cutoff_hz[i] / sample_rate)
+            x_driven = x * drive
+            high = x_driven - low - damping * band
+            band += f * high
+            low += f * band
+            out[i] = np.tanh(high)
+    return out
+
+
 def highpass_filter(
     signal: np.ndarray,
     cutoff_hz: float,
@@ -99,6 +132,11 @@ def highpass_filter(
 def saturator(signal: np.ndarray, drive: float) -> np.ndarray:
     """Simple waveshaper with controllable drive."""
     return np.tanh(drive * signal)
+
+
+def limiter(x: np.ndarray, thresh: float = 0.95) -> np.ndarray:
+    """Simple limiter using tanh soft clipping."""
+    return np.tanh(x / thresh) * thresh
 
 
 def chorus(
@@ -145,7 +183,7 @@ def apply_modwheel(signal: np.ndarray, sample_rate: int, mod: float) -> np.ndarr
     """Apply mod-wheel to high-pass cutoff and chorus."""
     hp_cut = 100 + mod * 900
 
-    sig = highpass_filter(signal, hp_cut, sample_rate)
+    sig = resonant_highpass(signal, cutoff_hz=hp_cut, q=0.8, sample_rate=sample_rate)
     sig = chorus(sig, sample_rate, depth_s=0.005, rate_hz=0.8)
     return sig
 
@@ -163,8 +201,12 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
 
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
     wave = saw_wave(freq, t)
+    square = np.sign(wave)
     env = amplitude_envelope(len(wave), sample_rate, attack, release)
     wave *= env
+    square *= env
+    wt_env = filter_envelope(len(wave), sample_rate, attack=0.0, decay=1.0)
+    wave = (1 - wt_env) * wave + wt_env * square
     filt_env = filter_envelope(len(wave), sample_rate, attack=0.4, decay=2.0)
     # 2) Filter-open mod: adds up to +500 Hz at full wheel
     cutoff = 100 + filt_env * 1400 + mod * 500
@@ -174,14 +216,18 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
 
     # 2) Now filter them
     wave = resonant_lowpass(
-        wave, cutoff_hz=cutoff, q=0.8, sample_rate=sample_rate, drive=1.8
+        wave, cutoff_hz=cutoff, q=0.8, sample_rate=sample_rate, drive=4.0
     )
 
     # Remove sub-200 Hz rumble (speaker-safe cleanup)
-    wave = highpass_filter(wave, cutoff_hz=200.0, sample_rate=sample_rate)
+    wave = resonant_highpass(
+        wave, cutoff_hz=200.0, q=0.8, sample_rate=sample_rate, drive=1.0
+    )
 
     # 3) Follow with HPF+chorus in apply_modwheel()
     wave = apply_modwheel(wave, sample_rate, mod)
+
+    wave = limiter(wave)
 
     print(
         f"Playing {freq:.1f} Hz for {duration:.2f} s "

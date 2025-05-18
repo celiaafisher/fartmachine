@@ -13,7 +13,7 @@ pip install -r requirements.txt
 
 ## Usage
 
-Running the script will pick a random frequency between 20 and 35 Hz and a random duration between 0.5 and 3 seconds. The waveform is shaped with a quick-attack, quick-release envelope, filtered with a resonant low-pass and high-pass stage, run through a mild waveshaper and then thickened by a simple chorus effect. A random “mod wheel” value modulates the high-pass cutoff, drive and chorus mix each run.
+Running the script will pick a random frequency between 20 and 35 Hz and a random duration between 0.5 and 3 seconds. The sawtooth is morphed toward a crude pulse wave via a second envelope, filtered with a resonant low-pass and high-pass stage, run through additional drive and finally limited. A simple chorus still thickens the sound, while a random “mod wheel” value modulates the high-pass cutoff and chorus depth each run.
 
 ```bash
 python saw_wave.py
