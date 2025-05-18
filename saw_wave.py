@@ -179,8 +179,16 @@ def chorus(
     return out
 
 
+def ensemble_chorus(signal: np.ndarray, sample_rate: int) -> np.ndarray:
+    """Three-voice chorus for a thicker ensemble sound."""
+    c1 = chorus(signal, sample_rate, rate_hz=0.9, depth_s=0.005, phase=0.0)
+    c2 = chorus(signal, sample_rate, rate_hz=1.1, depth_s=0.006, phase=0.33)
+    c3 = chorus(signal, sample_rate, rate_hz=1.0, depth_s=0.004, phase=0.66)
+    return (c1 + c2 + c3) / 3
+
+
 def apply_modwheel(signal: np.ndarray, sample_rate: int, mod: float) -> np.ndarray:
-    """Apply mod-wheel to high-pass cutoff and chorus."""
+    """Deprecated: kept for backwards compatibility."""
     hp_cut = 100 + mod * 900
 
     sig = resonant_highpass(signal, cutoff_hz=hp_cut, q=0.8, sample_rate=sample_rate)
@@ -196,36 +204,62 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     release = np.random.uniform(0.05, 0.2)
     mod = np.random.uniform(0.0, 1.0)
 
-    # 1) Pitch-mod via mod-wheel (0…2 semitones down)
-    freq = raw_freq * (2 ** (-mod * (2 / 12)))
+    freq = raw_freq
 
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
     wave = saw_wave(freq, t)
     square = np.sign(wave)
-    env = amplitude_envelope(len(wave), sample_rate, attack, release)
-    wave *= env
-    square *= env
-    wt_env = filter_envelope(len(wave), sample_rate, attack=0.0, decay=1.0)
-    wave = (1 - wt_env) * wave + wt_env * square
-    filt_env = filter_envelope(len(wave), sample_rate, attack=0.4, decay=2.0)
-    # 2) Filter-open mod: adds up to +500 Hz at full wheel
-    cutoff = 100 + filt_env * 1400 + mod * 500
 
-    # 1) Pre-drive the clicks for extra grit
+    # ----- Amp envelope (env1)
+    amp_env = amplitude_envelope(len(wave), sample_rate, attack, release)
+    wave *= amp_env
+    square *= amp_env
+
+    # ----- Wavetable envelope (env3)
+    wt_env = filter_envelope(
+        length=len(wave),
+        sample_rate=sample_rate,
+        attack=0.0,
+        decay=1.0,
+    )
+
+    # Blend saw <> square using envelope and mod wheel
+    wave = (1 - wt_env) * wave + wt_env * square
+    wave = (1 - mod * 0.2) * wave + (mod * 0.2) * square
+
+    # ----- Pre-drive before filtering
     wave = saturator(wave, drive=1.5)
 
-    # 2) Now filter them
+    # ----- Filter envelope (env2)
+    filt_env = filter_envelope(
+        length=len(wave),
+        sample_rate=sample_rate,
+        attack=0.4,
+        decay=2.0,
+    )
+
+    base_cut = 100 + filt_env * 1400
+    cutoff = base_cut + mod * 500
+
+    # ----- MS-2 style low-pass
     wave = resonant_lowpass(
-        wave, cutoff_hz=cutoff, q=0.8, sample_rate=sample_rate, drive=4.0
+        signal=wave,
+        cutoff_hz=cutoff,
+        q=0.95,
+        sample_rate=sample_rate,
+        drive=6.0,
     )
 
-    # Remove sub-200 Hz rumble (speaker-safe cleanup)
-    wave = resonant_highpass(
-        wave, cutoff_hz=200.0, q=0.8, sample_rate=sample_rate, drive=1.0
+    # ----- Remove rumble
+    wave = highpass_filter(
+        signal=wave,
+        cutoff_hz=200.0,
+        sample_rate=sample_rate,
+        order=2,
     )
 
-    # 3) Follow with HPF+chorus in apply_modwheel()
-    wave = apply_modwheel(wave, sample_rate, mod)
+    # ----- 3-voice ensemble chorus
+    wave = ensemble_chorus(wave, sample_rate)
 
     wave = limiter(wave)
 
