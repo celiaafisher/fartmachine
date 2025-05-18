@@ -107,10 +107,28 @@ def chorus(
     depth_s: float = 0.005,
     rate_hz: float = 1.0,
     mix: float = 0.5,
+    phase: float = 0.0,
 ) -> np.ndarray:
-    """Mono chorus using an LFO-modulated delay line."""
+    """Mono chorus using an LFO-modulated delay line.
+
+    Parameters
+    ----------
+    signal : np.ndarray
+        Input audio buffer.
+    sample_rate : int
+        Sample rate in Hz.
+    depth_s : float, default 0.005
+        Maximum delay depth in seconds.
+    rate_hz : float, default 1.0
+        LFO rate in Hertz.
+    mix : float, default 0.5
+        Dry/wet mix ratio.
+    phase : float, default 0.0
+        Starting phase of the LFO as a fraction of one cycle.
+    """
     n = len(signal)
-    lfo = np.sin(np.pi * rate_hz * np.arange(n) / sample_rate)
+    phase_rad = 2 * np.pi * phase
+    lfo = np.sin(np.pi * rate_hz * np.arange(n) / sample_rate + phase_rad)
     delay_samples = (depth_s * sample_rate) * (0.5 * (lfo + 1))
     out = np.zeros(n)
     for i in range(n):
