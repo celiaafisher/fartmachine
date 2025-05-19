@@ -26,16 +26,44 @@ def saw_wave(freq: float, time_array: np.ndarray) -> np.ndarray:
     return 2.0 * (freq * time_array % 1.0) - 1.0
 
 
-def amplitude_envelope(length: int, sample_rate: int, attack: float, release: float) -> np.ndarray:
-    """Create an amplitude envelope with linear attack and quick release."""
-    env = np.ones(length)
+def amplitude_envelope(
+    length: int,
+    sample_rate: int,
+    attack: float,
+    decay: float,
+    sustain_level: float,
+    release: float,
+) -> np.ndarray:
+    """Create a basic ADSR amplitude envelope.
+
+    Parameters
+    ----------
+    length : int
+        Total envelope length in samples.
+    sample_rate : int
+        Sample rate in Hz.
+    attack : float
+        Attack time in seconds.
+    decay : float
+        Decay time in seconds.
+    sustain_level : float
+        Sustain level as a fraction of 1.0.
+    release : float
+        Release time in seconds.
+    """
+
     a_len = int(sample_rate * attack)
+    d_len = int(sample_rate * decay)
     r_len = int(sample_rate * release)
-    if a_len > 0:
-        env[:a_len] = np.linspace(0, 1, a_len)
-    if r_len > 0:
-        env[-r_len:] = np.linspace(1, 0, r_len)
-    return env
+    s_len = max(length - (a_len + d_len + r_len), 0)
+
+    attack_seg = np.linspace(0.0, 1.0, a_len, endpoint=False)
+    decay_seg = np.linspace(1.0, sustain_level, d_len, endpoint=False)
+    sustain_seg = np.full(s_len, sustain_level)
+    release_seg = np.linspace(sustain_level, 0.0, r_len, endpoint=True)
+
+    env = np.concatenate([attack_seg, decay_seg, sustain_seg, release_seg])
+    return env[:length]
 
 
 def filter_envelope(
@@ -246,6 +274,8 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     raw_freq = np.random.uniform(20.0, 35.0)
     duration = np.random.uniform(0.5, 3.0)
     attack = np.random.uniform(0.005, 0.2)
+    decay = np.random.uniform(0.05, 0.3)
+    sustain_level = np.random.uniform(0.4, 0.8)
     release = np.random.uniform(0.05, 0.2)
     mod = np.random.uniform(0.0, 1.0)
 
@@ -254,7 +284,14 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
 
     # ----- Amp envelope (env1)
-    amp_env = amplitude_envelope(len(t), sample_rate, attack, release)
+    amp_env = amplitude_envelope(
+        len(t),
+        sample_rate,
+        attack,
+        decay,
+        sustain_level,
+        release,
+    )
 
     # ----- Wavetable envelope (env3)
     wt_env = filter_envelope(
@@ -331,7 +368,8 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
 
     print(
         f"Playing {freq:.1f} Hz for {duration:.2f} s "
-        f"(attack={attack:.3f}s, release={release:.3f}s, mod={mod:.2f})"
+        f"(attack={attack:.3f}s, decay={decay:.3f}s, "
+        f"sustain={sustain_level:.2f}, release={release:.3f}s, mod={mod:.2f})"
     )
     sd.play(wave, sample_rate)
     sd.wait()
