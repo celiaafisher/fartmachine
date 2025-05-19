@@ -149,7 +149,8 @@ def resonant_highpass(
             high = x_driven - low - damping * band
             band += f * high
             low += f * band
-            out[i] = np.tanh(high)
+            raw_hp = x_driven - low - damping * band
+            out[i] = raw_hp
     else:
         for i, x in enumerate(signal):
             f = 2.0 * np.sin(np.pi * cutoff_hz[i] / sample_rate)
@@ -157,7 +158,8 @@ def resonant_highpass(
             high = x_driven - low - damping * band
             band += f * high
             low += f * band
-            out[i] = np.tanh(high)
+            raw_hp = x_driven - low - damping * band
+            out[i] = raw_hp
     return out
 
 
@@ -289,7 +291,7 @@ def apply_modwheel(signal: np.ndarray, sample_rate: int, mod: float) -> np.ndarr
 
 def play_saw_wave(sample_rate: int = 44100) -> None:
     """Generate a random sawtooth burst and play it."""
-    raw_freq = np.random.uniform(20.0, 35.0)
+    raw_freq = np.random.uniform(40.0, 80.0)
     duration = np.random.uniform(0.5, 3.0)
     attack = np.random.uniform(0.005, 0.2)
     decay = np.random.uniform(0.05, 0.3)
@@ -367,7 +369,7 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     # ----- Remove rumble with slight resonance
     wave = resonant_highpass(
         signal=wave,
-        cutoff_hz=200.0,
+        cutoff_hz=30.0,
         q=1.2,
         sample_rate=sample_rate,
         drive=1.2,
