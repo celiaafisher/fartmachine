@@ -7,6 +7,19 @@ from typing import Union
 ic1eq = 0.0
 ic2eq = 0.0
 
+# Precomputed wavetable bank ranging from a pure sawtooth to a square-like
+# waveform. Each table contains one cycle with 512 samples.
+WAVETABLE_SIZE = 64
+_TABLE_LEN = 512
+
+_phase = np.linspace(0.0, 1.0, _TABLE_LEN, endpoint=False)
+_base_saw = 2.0 * _phase - 1.0
+_base_square = np.sign(_base_saw)
+wavetables = np.stack([
+    (1.0 - w) * _base_saw + w * _base_square
+    for w in np.linspace(0.0, 1.0, WAVETABLE_SIZE)
+])
+
 
 def saw_wave(freq: float, time_array: np.ndarray) -> np.ndarray:
     """Generate a sawtooth wave."""
@@ -239,25 +252,37 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     freq = raw_freq
 
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-    wave = saw_wave(freq, t)
-    square = np.sign(wave)
 
     # ----- Amp envelope (env1)
-    amp_env = amplitude_envelope(len(wave), sample_rate, attack, release)
-    wave *= amp_env
-    square *= amp_env
+    amp_env = amplitude_envelope(len(t), sample_rate, attack, release)
 
     # ----- Wavetable envelope (env3)
     wt_env = filter_envelope(
-        length=len(wave),
+        length=len(t),
         sample_rate=sample_rate,
         attack=0.0,
         decay=1.0,
     )
 
-    # Blend saw <> square using envelope and mod wheel
-    blend = np.tanh(1.5 * wt_env) / np.tanh(1.5)
-    wave = (1 - blend) * wave + blend * square
+    phase = (freq * t) % 1.0
+    table_pos = wt_env * (WAVETABLE_SIZE - 1)
+    wave = np.zeros_like(phase)
+    square = np.zeros_like(phase)
+    for i in range(len(phase)):
+        idx = table_pos[i]
+        lo = int(np.floor(idx))
+        hi = min(lo + 1, WAVETABLE_SIZE - 1)
+        frac = idx - lo
+        p = int(phase[i] * _TABLE_LEN)
+        samp_lo = wavetables[lo][p]
+        samp_hi = wavetables[hi][p]
+        wave[i] = (1.0 - frac) * samp_lo + frac * samp_hi
+        square[i] = wavetables[-1][p]
+
+    wave *= amp_env
+    square *= amp_env
+
+    # Additional square modulation via mod wheel
     wave = (1 - mod * 0.2) * wave + (mod * 0.2) * square
 
     # ----- Pre-drive before filtering
