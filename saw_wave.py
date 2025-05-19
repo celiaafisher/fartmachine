@@ -340,9 +340,6 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     # Additional square modulation via mod wheel
     wave = (1 - mod * 0.2) * wave + (mod * 0.2) * square
 
-    # ----- Pre-drive before filtering
-    wave = saturator(wave, drive=1.5)
-
     # ----- Filter envelope (env2)
     filt_env = filter_envelope(
         length=len(wave),
@@ -376,11 +373,11 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
         drive=1.2,
     )
 
-    # ----- Extra drive after filtering
-    wave = saturator(wave, drive=2.0)
-
     # ----- 3-voice ensemble chorus
     wave = ensemble_chorus(wave, sample_rate)
+
+    # ----- Extra drive after filtering and chorus
+    wave = saturator(wave, drive=3.0)
 
     wave = limiter(wave)
 
