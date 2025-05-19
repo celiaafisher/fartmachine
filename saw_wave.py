@@ -164,26 +164,44 @@ def resonant_highpass(
 def ms20_lowpass(
     signal: np.ndarray,
     cutoff_hz: Union[float, np.ndarray],
-    res: float,
-    drive: float,
+    res: Union[float, np.ndarray],
+    drive: Union[float, np.ndarray],
     sr: int,
 ) -> np.ndarray:
-    """Simple MS-20 style low-pass filter with drive inside the loop."""
+    """Simple MS-20 style low-pass filter with drive inside the feedback loop.
+
+    Parameters
+    ----------
+    signal : np.ndarray
+        Input signal buffer.
+    cutoff_hz : float or np.ndarray
+        Filter cutoff frequency in Hz. Can be a scalar or per-sample array.
+    res : float or np.ndarray
+        Resonance amount as a scalar or per-sample array.
+    drive : float or np.ndarray
+        Drive applied inside the feedback loop; higher values add more
+        saturation. Can be a scalar or per-sample array.
+    sr : int
+        Sample rate in Hz.
+    """
 
     global ic1eq, ic2eq
     out = np.zeros_like(signal)
     for i, x in enumerate(signal):
-        x = np.tanh(drive * x)
         f = (
             2.0 * np.sin(np.pi * cutoff_hz / sr)
             if np.isscalar(cutoff_hz)
             else 2.0 * np.sin(np.pi * cutoff_hz[i] / sr)
         )
-        v1 = (f * (x - ic2eq) + ic1eq) / (1.0 + f * (f + res))
+        this_res = res if np.isscalar(res) else res[i]
+        this_drive = drive if np.isscalar(drive) else drive[i]
+
+        v1 = (f * (x - ic2eq) + ic1eq) / (1.0 + f * (f + this_res))
         v2 = f * v1 + ic2eq
+        x = np.tanh(this_drive * v2)
         ic1eq = 2.0 * v1 - ic1eq
-        ic2eq = 2.0 * v2 - ic2eq
-        out[i] = np.tanh(v2)
+        ic2eq = 2.0 * x - ic2eq
+        out[i] = x
     return out
 
 
