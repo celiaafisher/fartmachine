@@ -1,21 +1,11 @@
 import numpy as np
 import sounddevice as sd
 from scipy.signal import butter, lfilter
-import scipy.signal
 from typing import Union
 
 # Global state for MS-20 filter emulation
 ic1eq = 0.0
 ic2eq = 0.0
-
-# Wavetable bank of intermediate saw/square shapes
-WAVETABLE_SIZE = 64
-wavetables = np.stack(
-    [
-        scipy.signal.sawtooth(2 * np.pi * np.linspace(0, 1, 512), width=w)
-        for w in np.linspace(0, 1, WAVETABLE_SIZE)
-    ]
-)
 
 
 def saw_wave(freq: float, time_array: np.ndarray) -> np.ndarray:
@@ -23,37 +13,15 @@ def saw_wave(freq: float, time_array: np.ndarray) -> np.ndarray:
     return 2.0 * (freq * time_array % 1.0) - 1.0
 
 
-def amplitude_envelope(
-    length: int,
-    sample_rate: int,
-    attack: float,
-    decay: float,
-    sustain_level: float,
-    release: float,
-) -> np.ndarray:
-    """Create a simple ADSR amplitude envelope."""
-
+def amplitude_envelope(length: int, sample_rate: int, attack: float, release: float) -> np.ndarray:
+    """Create an amplitude envelope with linear attack and quick release."""
+    env = np.ones(length)
     a_len = int(sample_rate * attack)
-    d_len = int(sample_rate * decay)
     r_len = int(sample_rate * release)
-    s_len = max(0, length - a_len - d_len - r_len)
-
-    env = np.zeros(length)
-    pos = 0
     if a_len > 0:
-        env[pos : pos + a_len] = np.linspace(0.0, 1.0, a_len, endpoint=False)
-        pos += a_len
-    if d_len > 0:
-        env[pos : pos + d_len] = np.linspace(1.0, sustain_level, d_len, endpoint=False)
-        pos += d_len
-    if s_len > 0:
-        env[pos : pos + s_len] = sustain_level
-        pos += s_len
+        env[:a_len] = np.linspace(0, 1, a_len)
     if r_len > 0:
-        env[pos : pos + r_len] = np.linspace(sustain_level, 0.0, r_len, endpoint=True)
-        pos += r_len
-    if pos < length:
-        env[pos:] = 0.0
+        env[-r_len:] = np.linspace(1, 0, r_len)
     return env
 
 
@@ -88,9 +56,9 @@ def resonant_lowpass(
 ) -> np.ndarray:
     """Two-pole SVF with resonance and analogue-style drive.
 
-    ``cutoff_hz`` may be a scalar or an array matching ``signal`` for
-    per-sample modulation. ``drive`` scales the input before the filtering
-    step; values above ``1.0`` introduce non-linearity via a ``tanh`` stage.
+    `cutoff_hz may be a scalar or an array matching signal for
+    per-sample modulation. `drive scales the input before the filtering
+    step; values above `1.0 introduce non-linearity via a tanh stage.
     """
 
     damping = 1.0 / max(q, 1e-6)
@@ -137,18 +105,18 @@ def resonant_highpass(
         f = 2.0 * np.sin(np.pi * cutoff_hz / sample_rate)
         for i, x in enumerate(signal):
             x_driven = x * drive
-            raw_hp = x_driven - low - damping * band
-            band += f * raw_hp
+            high = x_driven - low - damping * band
+            band += f * high
             low += f * band
-            out[i] = np.tanh(raw_hp * 1.1)
+            out[i] = np.tanh(high)
     else:
         for i, x in enumerate(signal):
             f = 2.0 * np.sin(np.pi * cutoff_hz[i] / sample_rate)
             x_driven = x * drive
-            raw_hp = x_driven - low - damping * band
-            band += f * raw_hp
+            high = x_driven - low - damping * band
+            band += f * high
             low += f * band
-            out[i] = np.tanh(raw_hp * 1.1)
+            out[i] = np.tanh(high)
     return out
 
 
@@ -164,6 +132,7 @@ def ms20_lowpass(
     global ic1eq, ic2eq
     out = np.zeros_like(signal)
     for i, x in enumerate(signal):
+        x = np.tanh(drive * x)
         f = (
             2.0 * np.sin(np.pi * cutoff_hz / sr)
             if np.isscalar(cutoff_hz)
@@ -171,10 +140,9 @@ def ms20_lowpass(
         )
         v1 = (f * (x - ic2eq) + ic1eq) / (1.0 + f * (f + res))
         v2 = f * v1 + ic2eq
-        v2 = np.tanh(drive * v2)
         ic1eq = 2.0 * v1 - ic1eq
         ic2eq = 2.0 * v2 - ic2eq
-        out[i] = v2
+        out[i] = np.tanh(v2)
     return out
 
 
@@ -262,10 +230,6 @@ def apply_modwheel(signal: np.ndarray, sample_rate: int, mod: float) -> np.ndarr
 
 def play_saw_wave(sample_rate: int = 44100) -> None:
     """Generate a random sawtooth burst and play it."""
-    global ic1eq, ic2eq
-    ic1eq = 0.0
-    ic2eq = 0.0
-
     raw_freq = np.random.uniform(20.0, 35.0)
     duration = np.random.uniform(0.5, 3.0)
     attack = np.random.uniform(0.005, 0.2)
@@ -275,32 +239,29 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     freq = raw_freq
 
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+    wave = saw_wave(freq, t)
+    square = np.sign(wave)
+
+    # ----- Amp envelope (env1)
+    amp_env = amplitude_envelope(len(wave), sample_rate, attack, release)
+    wave *= amp_env
+    square *= amp_env
 
     # ----- Wavetable envelope (env3)
     wt_env = filter_envelope(
-        length=len(t),
+        length=len(wave),
         sample_rate=sample_rate,
         attack=0.0,
         decay=1.0,
     )
 
-    phase = (freq * t) % 1.0
-    table_pos = wt_env * (WAVETABLE_SIZE - 1)
-    wave = np.zeros_like(phase)
-    for i in range(len(phase)):
-        idx = table_pos[i]
-        lo = int(idx)
-        hi = min(lo + 1, WAVETABLE_SIZE - 1)
-        frac = idx - lo
-        samp_lo = wavetables[lo][int(phase[i] * 512)]
-        samp_hi = wavetables[hi][int(phase[i] * 512)]
-        wave[i] = (1 - frac) * samp_lo + frac * samp_hi
+    # Blend saw <> square using envelope and mod wheel
+    blend = np.tanh(1.5 * wt_env) / np.tanh(1.5)
+    wave = (1 - blend) * wave + blend * square
+    wave = (1 - mod * 0.2) * wave + (mod * 0.2) * square
 
-    # ----- Amp envelope (env1)
-    amp_env = amplitude_envelope(
-        len(wave), sample_rate, attack, 0.1, 0.7, release
-    )
-    wave *= amp_env
+    # ----- Pre-drive before filtering
+    wave = saturator(wave, drive=1.5)
 
     # ----- Filter envelope (env2)
     filt_env = filter_envelope(
@@ -317,6 +278,7 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
 
     # ----- MS-20 style low-pass with internal drive
     q = 0.95
+    ic1eq = ic2eq = 0.0  # reset filter state
     wave = ms20_lowpass(
         wave,
         cutoff_hz=cutoff,
@@ -334,8 +296,8 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
         drive=1.2,
     )
 
-    # ----- Extra drive after filtering and chorus
-    wave = saturator(wave, drive=3.0)
+    # ----- Extra drive after filtering
+    wave = saturator(wave, drive=2.0)
 
     # ----- 3-voice ensemble chorus
     wave = ensemble_chorus(wave, sample_rate)
