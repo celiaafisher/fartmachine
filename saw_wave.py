@@ -135,7 +135,7 @@ def resonant_highpass(
     sample_rate: int,
     drive: float = 1.0,
 ) -> np.ndarray:
-    """Two-pole SVF high-pass with resonance and drive."""
+    """Two-pole SVF high-pass with analog-style resonance and drive."""
 
     damping = 1.0 / max(q, 1e-6)
     low = 0.0
@@ -149,7 +149,8 @@ def resonant_highpass(
             high = x_driven - low - damping * band
             band += f * high
             low += f * band
-            out[i] = np.tanh(high)
+            raw_hp = x_driven - low - damping * band
+            out[i] = np.tanh(raw_hp * 1.1)
     else:
         for i, x in enumerate(signal):
             f = 2.0 * np.sin(np.pi * cutoff_hz[i] / sample_rate)
@@ -157,7 +158,8 @@ def resonant_highpass(
             high = x_driven - low - damping * band
             band += f * high
             low += f * band
-            out[i] = np.tanh(high)
+            raw_hp = x_driven - low - damping * band
+            out[i] = np.tanh(raw_hp * 1.1)
     return out
 
 
@@ -368,7 +370,7 @@ def play_saw_wave(sample_rate: int = 44100) -> None:
     wave = resonant_highpass(
         signal=wave,
         cutoff_hz=200.0,
-        q=1.2,
+        q=1.8,
         sample_rate=sample_rate,
         drive=1.2,
     )
